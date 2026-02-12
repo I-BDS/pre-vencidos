@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Registro Pré-Vencidos</title>
+    
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/762/762666.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; scroll-behavior: smooth; overflow: hidden; }
+        .table-container { height: calc(100vh - 380px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        @media (min-width: 768px) { .table-container { height: calc(100vh - 320px); } }
+        .cursor-edit { cursor: pointer; border-bottom: 1px dashed #3b82f6; transition: all 0.2s; }
+        .cursor-edit:hover { color: #2563eb; background: #eff6ff; border-bottom-style: solid; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        input[type="text"], input[type="number"], select { font-size: 16px !important; }
+        .date-group-header { position: sticky; top: 0; z-index: 20; background: #f1f5f9; }
+    </style>
+</head>
+<body class="bg-slate-50 h-screen flex flex-col md:flex-row font-sans text-slate-900">
+
+    <div id="overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/60 z-40 hidden backdrop-blur-sm transition-opacity"></div>
+
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform -translate-x-full md:translate-x-0 md:static flex flex-col border-r border-slate-800 shadow-2xl transition-transform duration-300">
+        <div class="p-5 border-b border-slate-800 flex justify-between items-center">
+            <span class="text-lg font-bold flex items-center gap-2 text-blue-400"><i data-lucide="clock-alert"></i> Pré-Vencidos</span>
+            <button onclick="toggleSidebar()" class="md:hidden p-2 hover:bg-slate-800 rounded-lg"><i data-lucide="chevron-left"></i></button>
+        </div>
+
+        <div class="p-4 space-y-6 overflow-y-auto no-scrollbar flex-1">
+            <div class="space-y-3">
+                <label class="text-[10px] font-bold uppercase text-slate-500 tracking-widest">Produtos (Local XLSX)</label>
+                <button onclick="document.getElementById('fileInput').click()" class="w-full bg-slate-800 hover:bg-slate-700 p-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border border-slate-700 transition active:scale-95">
+                    <i data-lucide="file-up"></i> Abrir XLSX Produtos
+                </button>
+                <input type="file" id="fileInput" class="hidden" accept=".xlsx"/>
+                <button onclick="limparBaseProdutosLocal()" class="w-full text-red-400 text-[10px] font-bold uppercase py-1 hover:bg-red-500/10 rounded-lg transition">Excluir Base Produtos</button>
+            </div>
+
+            <div class="space-y-3 pt-2">
+                <label class="text-[10px] font-bold uppercase text-slate-500 tracking-widest">Histórico (Firebase)</label>
+                <button onclick="document.getElementById('historyImportInput').click()" class="w-full bg-blue-600/20 text-blue-400 border border-blue-600/30 p-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition hover:bg-blue-600/30">
+                    <i data-lucide="history"></i> Importar Histórico
+                </button>
+                <input type="file" id="historyImportInput" class="hidden" accept=".xlsx"/>
+                <button onclick="limparHistoricoNuvem()" class="w-full text-orange-400 text-[10px] font-bold uppercase py-1 hover:bg-orange-500/10 rounded-lg transition">Limpar Histórico Nuvem</button>
+            </div>
+
+            <div class="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 space-y-3">
+                <label class="text-xs font-bold text-blue-400 uppercase">Novo Produto Manual</label>
+                <input type="text" id="manID" placeholder="ID Interno" class="w-full bg-slate-950 border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:ring-1 ring-blue-500">
+                <input type="text" id="manEAN" placeholder="Código EAN" class="w-full bg-slate-950 border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:ring-1 ring-blue-500">
+                <input type="text" id="manNOME" placeholder="Nome Completo" class="w-full bg-slate-950 border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:ring-1 ring-blue-500">
+                <button onclick="cadastrarProdutoManual()" class="w-full bg-blue-600 hover:bg-blue-500 py-2.5 rounded-lg text-sm font-bold transition active:scale-95">Salvar Local</button>
+            </div>
+        </div>
+        
+        <div class="p-4 border-t border-slate-800">
+            <button onclick="limparTudo()" class="w-full text-red-400 text-[10px] font-bold uppercase py-2 hover:bg-red-500/10 rounded-lg transition">Zerar App Completo</button>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header class="bg-white p-3 md:p-4 flex justify-between items-center border-b shadow-sm z-30">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="md:hidden p-2 bg-slate-100 rounded-xl"><i data-lucide="menu" class="w-5 h-5"></i></button>
+                <h1 class="font-black text-slate-800 uppercase tracking-tight text-sm">Controle de Validade</h1>
+            </div>
+            <div id="statusBase" class="text-[9px] font-bold bg-slate-100 px-3 py-1 rounded-full text-slate-500 uppercase">
+                Aguardando base...
+            </div>
+        </header>
+
+        <div class="p-3 md:p-6 space-y-4 flex-1 overflow-y-auto bg-slate-50/50">
+            <div class="bg-white p-3 md:p-5 rounded-2xl md:rounded-3xl shadow-sm border border-slate-200">
+                <div class="flex gap-2">
+                    <div class="flex-1 relative">
+                        <i data-lucide="scan-barcode" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5"></i>
+                        <input type="text" id="searchInput" onkeyup="if(event.key === 'Enter') iniciarLancamento()" placeholder="Bipar EAN ou ID..." class="w-full h-12 md:h-14 bg-slate-50 border-2 border-slate-100 rounded-xl md:rounded-2xl pl-12 pr-4 focus:border-blue-500 outline-none text-base font-medium">
+                    </div>
+                    <button onclick="iniciarLancamento()" class="h-12 md:h-14 px-6 md:px-10 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl md:rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center">
+                        <i data-lucide="plus" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl md:rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                <div class="p-3 md:p-5 border-b flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div class="flex flex-col sm:flex-row flex-1 gap-2">
+                        <input type="text" id="filterInput" oninput="filtrarTabela()" placeholder="Buscar na lista..." class="w-full sm:max-w-xs px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none">
+                        <select id="dateFilter" onchange="filtrarTabela()" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold text-slate-600 outline-none">
+                            <option value="">Todas as Datas</option>
+                        </select>
+                    </div>
+                    <button onclick="exportarHistorico()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 shadow-md">
+                        <i data-lucide="download" class="w-4 h-4"></i> Exportar
+                    </button>
+                </div>
+
+                <div class="table-container no-scrollbar overflow-x-auto">
+                    <table class="w-full text-left" id="tabelaHistorico">
+                        <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 font-bold border-b hidden md:table-header-group">
+                            <tr>
+                                <th class="px-6 py-4 w-12 text-center">Ok</th>
+                                <th class="px-6 py-4">Produto</th>
+                                <th class="px-6 py-4">Lote</th>
+                                <th class="px-6 py-4 text-center">Validade</th>
+                                <th class="px-6 py-4 text-center">Qtd</th>
+                                <th class="px-6 py-4">Usuário</th>
+                                <th class="px-6 py-4 text-right">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAbjPfBTVu9PydkKsFLOpbxMNTKQXtBhbs",
+            authDomain: "controledeprevencidos.firebaseapp.com",
+            projectId: "controledeprevencidos",
+            storageBucket: "controledeprevencidos.firebasestorage.app",
+            messagingSenderId: "830253350575",
+            appId: "1:830253350575:web:2a74d4aea90757173b9e5a",
+            measurementId: "G-F5EPZ5X8W7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const colRegistros = collection(db, "registros_vencidos");
+
+        let bancoReferencia = [];
+        let cacheFirebase = [];
+
+        const carregarBaseLocal = () => {
+            const local = JSON.parse(localStorage.getItem('bancoRef')) || [];
+            bancoReferencia = local;
+            document.getElementById('statusBase').innerHTML = `${local.length} PRODUTOS CARREGADOS (LOCAL)`;
+        };
+
+        const aplicarMascaraData = (input) => {
+            input.addEventListener('input', (e) => {
+                let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+                if (v.length >= 5) v = `${v.slice(0, 2)}/${v.slice(2, 4)}/${v.slice(4)}`;
+                else if (v.length >= 3) v = `${v.slice(0, 2)}/${v.slice(2)}`;
+                e.target.value = v;
+            });
+        };
+
+        window.iniciarLancamento = async () => {
+            const inputField = document.getElementById('searchInput');
+            const val = inputField.value.trim();
+            if(!val) return;
+
+            const produto = bancoReferencia.find(p => 
+                String(p.ID).toLowerCase() === val.toLowerCase() || 
+                String(p.EAN).toLowerCase() === val.toLowerCase()
+            );
+
+            const info = produto ? produto : { ID: "N/A", EAN: val, NOME: "NÃO CADASTRADO" };
+            const hoje = new Date().toLocaleDateString('pt-BR');
+            const ultimoUsuario = localStorage.getItem('ultimoUsuario') || "";
+            
+            const { value: formValues, isConfirmed } = await Swal.fire({
+                title: `<span class="text-blue-600 text-lg">${info.NOME}</span>`,
+                html: `
+                    <div class="text-left space-y-4 p-1">
+                        <input id="swal-usuario" value="${ultimoUsuario}" placeholder="Seu Nome" class="w-full border-2 p-3 rounded-xl uppercase mt-1">
+                        <div class="grid grid-cols-2 gap-3">
+                            <input id="swal-lote" placeholder="Lote" class="w-full border-2 p-3 rounded-xl uppercase">
+                            <input id="swal-qtd" type="number" value="1" class="w-full border-2 p-3 rounded-xl">
+                        </div>
+                        <input id="swal-validade" placeholder="Validade DD/MM/AAAA" class="w-full border-2 p-3 rounded-xl">
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Confirmar',
+                didOpen: () => {
+                    const inputs = {
+                        user: document.getElementById('swal-usuario'),
+                        lote: document.getElementById('swal-lote'),
+                        val: document.getElementById('swal-validade'),
+                        qtd: document.getElementById('swal-qtd')
+                    };
+                    if(!ultimoUsuario) inputs.user.focus(); else inputs.lote.focus();
+                    aplicarMascaraData(inputs.val);
+                    Object.values(inputs).forEach(el => {
+                        el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); Swal.clickConfirm(); } });
+                    });
+                },
+                preConfirm: () => {
+                    const v = document.getElementById('swal-validade').value;
+                    const u = document.getElementById('swal-usuario').value.trim();
+                    if(!u || v.length < 10) return Swal.showValidationMessage('Preencha Usuário e Validade');
+                    return { 
+                        usuario: u.toUpperCase(), 
+                        lote: (document.getElementById('swal-lote').value || "S/ LOTE").toUpperCase().trim(), 
+                        validade: v, 
+                        qtd: parseInt(document.getElementById('swal-qtd').value) || 1 
+                    }
+                }
+            });
+
+            if(isConfirmed && formValues) {
+                localStorage.setItem('ultimoUsuario', formValues.usuario);
+                const itemDup = cacheFirebase.find(i => String(i.ean) === String(info.EAN) && String(i.lote) === String(formValues.lote) && String(i.validade) === String(formValues.validade) && i.dataLancamento === hoje);
+
+                if (itemDup) {
+                    setTimeout(async () => {
+                        const confirmDup = await Swal.fire({
+                            title: 'Item já lançado hoje',
+                            text: `Deseja somar +${formValues.qtd} à quantidade existente?`,
+                            icon: 'info',
+                            showCancelButton: true,
+                            confirmButtonText: 'Sim, Somar',
+                            cancelButtonText: 'Cancelar'
+                        });
+                        if (confirmDup.isConfirmed) {
+                            await updateDoc(doc(db, "registros_vencidos", itemDup.docId), { qtd: itemDup.qtd + formValues.qtd, timestamp: new Date() });
+                        }
+                        inputField.value = ""; inputField.focus();
+                    }, 100);
+                } else {
+                    await addDoc(colRegistros, { 
+                        id: info.ID, ean: info.EAN, nome: info.NOME, lote: formValues.lote, 
+                        validade: formValues.validade, qtd: formValues.qtd, conferido: false, 
+                        usuario: formValues.usuario, dataLancamento: hoje, timestamp: new Date() 
+                    });
+                    inputField.value = ""; inputField.focus();
+                }
+            } else { inputField.focus(); }
+        };
+
+        onSnapshot(query(colRegistros, orderBy("timestamp", "desc")), (snapshot) => {
+            cacheFirebase = [];
+            snapshot.forEach(doc => cacheFirebase.push({ docId: doc.id, ...doc.data() }));
+            atualizarDropdownDatas();
+            renderizarTabela(cacheFirebase);
+        });
+
+        const atualizarDropdownDatas = () => {
+            const select = document.getElementById('dateFilter');
+            const valorAtual = select.value;
+            const datas = [...new Set(cacheFirebase.map(i => i.dataLancamento))].sort((a,b) => b.split('/').reverse().join('-').localeCompare(a.split('/').reverse().join('-')));
+            select.innerHTML = '<option value="">Todas as Datas</option>' + datas.map(d => `<option value="${d}">${d}</option>`).join('');
+            select.value = valorAtual;
+        };
+
+        window.renderizarTabela = (dados) => {
+            const body = document.getElementById('historyBody');
+            const dataFiltro = document.getElementById('dateFilter').value;
+            const termo = document.getElementById('filterInput').value.toLowerCase();
+            let filtrados = dados.filter(i => (i.nome.toLowerCase().includes(termo) || i.lote.toLowerCase().includes(termo) || i.ean.includes(termo)) && (dataFiltro === "" || i.dataLancamento === dataFiltro));
+            const grupos = filtrados.reduce((acc, item) => { if (!acc[item.dataLancamento]) acc[item.dataLancamento] = []; acc[item.dataLancamento].push(item); return acc; }, {});
+            let html = "";
+            Object.keys(grupos).forEach(data => {
+                html += `<tr class="date-group-header"><td colspan="7" class="px-4 py-3 text-[10px] font-black text-blue-600 uppercase bg-slate-100 border-y">Lançamentos de ${data}</td></tr>`;
+                grupos[data].forEach(item => {
+                    html += `<tr class="hover:bg-blue-50/30 ${item.conferido ? 'opacity-50' : ''} transition-colors">
+                            <td class="px-4 py-4 text-center"><input type="checkbox" ${item.conferido ? 'checked' : ''} onchange="marcarConferido('${item.docId}', this.checked)" class="w-5 h-5 accent-blue-600 cursor-pointer"></td>
+                            <td class="px-4 py-4"><div class="font-bold text-sm leading-tight">${item.nome}</div><div class="text-[10px] text-slate-400">${item.ean}</div></td>
+                            <td class="px-6 py-4 hidden md:table-cell"><span class="cursor-edit text-sm" onclick="editarCampo('${item.docId}', 'lote', '${item.lote}')">${item.lote}</span></td>
+                            <td class="px-6 py-4 text-center hidden md:table-cell"><span class="cursor-edit font-medium text-sm" onclick="editarCampo('${item.docId}', 'validade', '${item.validade}')">${item.validade}</span></td>
+                            <td class="px-4 py-4 text-center"><div class="md:hidden text-[10px] text-slate-400 font-bold mb-1">L:${item.lote} | V:${item.validade}</div>
+                                <span class="cursor-edit bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-black text-xs" onclick="editarCampo('${item.docId}', 'qtd', ${item.qtd})">${item.qtd}</span>
+                            </td>
+                            <td class="px-6 py-4 text-xs font-bold text-slate-500 uppercase hidden md:table-cell">${item.usuario || "N/A"}</td>
+                            <td class="px-4 py-4 text-right"><button onclick="removerIndividual('${item.docId}')" class="text-slate-300 hover:text-red-500 p-2"><i data-lucide="trash-2" class="w-5 h-5"></i></button></td>
+                        </tr>`;
+                });
+            });
+            body.innerHTML = html || '<tr><td colspan="7" class="p-10 text-center text-slate-400">Nenhum registro encontrado</td></tr>';
+            lucide.createIcons();
+        };
+
+        window.editarCampo = async (id, campo, valor) => {
+            const { value: novo } = await Swal.fire({ title: `Editar ${campo}`, input: campo === 'qtd' ? 'number' : 'text', inputValue: valor, showCancelButton: true, didOpen: () => { if(campo === 'validade') aplicarMascaraData(Swal.getInput()); } });
+            if (novo !== undefined) await updateDoc(doc(db, "registros_vencidos", id), { [campo]: campo === 'qtd' ? parseInt(novo) : novo.toUpperCase().trim() });
+        };
+
+        window.marcarConferido = async (id, status) => { await updateDoc(doc(db, "registros_vencidos", id), { conferido: status }); };
+        window.filtrarTabela = () => renderizarTabela(cacheFirebase);
+        window.removerIndividual = async (id) => { if((await Swal.fire({ title: 'Excluir?', icon: 'warning', showCancelButton: true })).isConfirmed) await deleteDoc(doc(db, "registros_vencidos", id)); };
+
+        window.exportarHistorico = () => {
+            const ws = XLSX.utils.json_to_sheet(cacheFirebase.map(i => ({ Data: i.dataLancamento, Usuario: i.usuario, ID: i.id, EAN: i.ean, Produto: i.nome, Lote: i.lote, Validade: i.validade, Qtd: i.qtd, OK: i.conferido ? 'SIM' : 'NÃO' })));
+            const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Dados"); XLSX.writeFile(wb, `Historico_Validades.xlsx`);
+        };
+
+        window.cadastrarProdutoManual = () => {
+            const id = document.getElementById('manID').value.trim();
+            const ean = document.getElementById('manEAN').value.trim();
+            const nome = document.getElementById('manNOME').value.trim();
+            if(!id || !nome) return Swal.fire('Erro', 'Campos obrigatórios', 'error');
+            bancoReferencia.push({ ID: id, EAN: ean, NOME: nome.toUpperCase() });
+            localStorage.setItem('bancoRef', JSON.stringify(bancoReferencia));
+            carregarBaseLocal();
+            document.getElementById('manID').value = ""; document.getElementById('manEAN').value = ""; document.getElementById('manNOME').value = "";
+        };
+
+        window.limparBaseProdutosLocal = async () => {
+            const res = await Swal.fire({
+                title: 'Excluir Base de Produtos?',
+                text: "Isso removerá todos os produtos carregados do XLSX ou cadastrados manualmente (Localmente).",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: 'Sim, Excluir',
+                cancelButtonText: 'Cancelar'
+            });
+            if(res.isConfirmed) {
+                localStorage.removeItem('bancoRef');
+                bancoReferencia = [];
+                carregarBaseLocal();
+                Swal.fire('Excluído!', 'Base de produtos local foi zerada.', 'success');
+            }
+        };
+
+        window.limparHistoricoNuvem = async () => {
+            const res = await Swal.fire({
+                title: 'LIMPAR TODO O HISTÓRICO?',
+                text: "ATENÇÃO: Isso apagará permanentemente todos os lançamentos da nuvem (Firebase) para todos os usuários!",
+                icon: 'error',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: 'Sim, APAGAR TUDO',
+                cancelButtonText: 'Cancelar'
+            });
+
+            if(res.isConfirmed) {
+                Swal.fire({ title: 'Apagando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                try {
+                    const snap = await getDocs(colRegistros);
+                    const batch = writeBatch(db);
+                    snap.forEach(d => batch.delete(d.ref));
+                    await batch.commit();
+                    Swal.fire('Limpo!', 'O histórico da nuvem foi completamente apagado.', 'success');
+                } catch (e) {
+                    Swal.fire('Erro', 'Falha ao limpar histórico.', 'error');
+                }
+            }
+        };
+
+        document.getElementById('historyImportInput').addEventListener('change', function(e) {
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const workbook = XLSX.read(new Uint8Array(ev.target.result), {type: 'array'});
+                const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                if(json.length === 0) return;
+                Swal.fire({ title: 'Importando registros...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                try {
+                    for (let i = 0; i < json.length; i += 100) {
+                        const batch = writeBatch(db);
+                        json.slice(i, i + 100).forEach(r => {
+                            batch.set(doc(colRegistros), {
+                                dataLancamento: String(r.Data || new Date().toLocaleDateString('pt-BR')),
+                                usuario: String(r.Usuario || "SISTEMA").toUpperCase(),
+                                id: String(r.ID || r.Codigo || "N/A"),
+                                ean: String(r.EAN || r.ean || "N/A"),
+                                nome: String(r.Produto || r.Nome || "PRODUTO").toUpperCase(),
+                                lote: String(r.Lote || "S/ LOTE").toUpperCase(),
+                                validade: String(r.Validade || "01/01/2000"),
+                                qtd: parseInt(r.Qtd || r.Quantidade || 1),
+                                conferido: String(r.OK || "").toUpperCase() === "SIM",
+                                timestamp: new Date()
+                            });
+                        });
+                        await batch.commit();
+                    }
+                    Swal.fire('Sucesso!', `${json.length} registros migrados.`, 'success');
+                } catch (err) { Swal.fire('Erro', 'Falha na importação', 'error'); }
+            };
+            reader.readAsArrayBuffer(e.target.files[0]);
+        });
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const workbook = XLSX.read(new Uint8Array(ev.target.result), {type: 'array'});
+                const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                const base = json.map(r => ({ ID: String(r.ID || r.Codigo || ""), EAN: String(r.EAN || r.ean || ""), NOME: String(r.NOME || r.nome || "S/ NOME").toUpperCase() }));
+                localStorage.setItem('bancoRef', JSON.stringify(base));
+                carregarBaseLocal();
+                Swal.fire('Sucesso', 'Base de produtos atualizada localmente!', 'success');
+            };
+            reader.readAsArrayBuffer(e.target.files[0]);
+        });
+
+        window.limparTudo = () => { if(confirm("Deseja apagar todos os produtos, histórico local e configurações?")) { localStorage.clear(); location.reload(); } };
+        window.toggleSidebar = () => { document.getElementById('sidebar').classList.toggle('-translate-x-full'); document.getElementById('overlay').classList.toggle('hidden'); };
+
+        carregarBaseLocal();
+        lucide.createIcons();
+    </script>
+</body>
+</html>
